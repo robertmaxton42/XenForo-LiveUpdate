@@ -2,6 +2,9 @@ var LiveUpdate = {};
 
 !function($, window, document, _undefined)
 {
+
+	LiveUpdate.lastAjaxCompleted = new SJ.iwc.SharedData("lastAjaxCompleted");
+
 	LiveUpdate.SetupAutoPolling = function()
 	{
 		if (!$('html').hasClass('LoggedIn'))
@@ -14,40 +17,47 @@ var LiveUpdate = {};
 			return;
 		}
 
-		$(document).bind('XFAjaxSuccess', LiveUpdate.AjaxSuccess);
+		SJ.iwc.EventBus.on('IWC_XFAjaxSuccess', LiveUpdate.AjaxSuccess, null, true);
 
 		LiveUpdate.AjaxSuccess();
 		setInterval(LiveUpdate.PollServer, LiveUpdate.pollInterval / 2);
 	};
 
 	LiveUpdate.PollServer = function()
-	{
-		if (!LiveUpdate.xhr && new Date().getTime() - LiveUpdate.lastAjaxCompleted > LiveUpdate.pollInterval)
+	
+{		if (!LiveUpdate.xhr && new Date().getTime() - LiveUpdate.lastAjaxCompleted.get() > LiveUpdate.pollInterval)
     	{
     		var ajaxStart = $(document).data('events').ajaxStart[0].handler;
-    		$(document).unbind('ajaxStart', ajaxStart);
-    		LiveUpdate.xhr = XenForo.ajax('index.php?liveupdate', {}, function(){},
-			{
-    			error: function(xhr, responseText, errorThrown)
-    			{
-    				delete(LiveUpdate.xhr);
-    				switch (responseText)
+		  	$(document).unbind('ajaxStart', ajaxStart);
+    		SJ.interlockedCall("pollserver", function() {
+    			if (new Date().getTime() - LiveUpdate.lastAjaxCompleted.get() <= LiveUpdate.pollInterval)
+    				return;
+    			LiveUpdate.xhr = XenForo.ajax('index.php?liveupdate', {}, 
+    				function(ajaxData, textStatus){
+    					SJ.iwc.EventBus.fire('IWC_XFAjaxSuccess', ajaxData);
+    				},
 					{
-						case 'timeout':
-						{
-							console.warn(XenForo.phrases.server_did_not_respond_in_time_try_again);
-							break;
-						}
-						case 'parsererror':
-						{
-							console.error('PHP ' + xhr.responseText);
-							break;
-						}
-					}
-					return false;
-    			},
-    			timeout: LiveUpdate.pollInterval
-    		});
+		    			error: function(xhr, responseText, errorThrown)
+		    			{
+		    				delete(LiveUpdate.xhr);
+		    				switch (responseText)
+							{
+								case 'timeout':
+								{
+									console.warn(XenForo.phrases.server_did_not_respond_in_time_try_again);
+									break;
+								}
+								case 'parsererror':
+								{
+									console.error('PHP ' + xhr.responseText);
+									break;
+								}
+							}
+							return false;
+		    			},
+		    			timeout: LiveUpdate.pollInterval
+		    		});
+    			});
     		$(document).bind('ajaxStart', ajaxStart);
     	}
 	};
@@ -71,7 +81,7 @@ var LiveUpdate = {};
 			LiveUpdate.Notification.close();
 		}
 
-  		LiveUpdate.lastAjaxCompleted = new Date().getTime();
+  		LiveUpdate.lastAjaxCompleted.set(new Date().getTime());
 
   		delete(LiveUpdate.xhr);
 	};
